@@ -6,9 +6,13 @@ import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.os.Build;
+import android.os.Handler;
 import android.util.AttributeSet;
 import android.util.TypedValue;
+import android.view.MotionEvent;
 import android.widget.ImageView;
+
 import at.markushi.circlebutton.R;
 
 public class CircleButton extends ImageView {
@@ -32,6 +36,10 @@ public class CircleButton extends ImageView {
 	private int defaultColor = Color.BLACK;
 	private int pressedColor;
 	private ObjectAnimator pressedAnimator;
+    private Handler mHandler;
+    private Runnable mTicker;
+    private boolean mTickerStopped;
+    private boolean mShowing;
 
 	public CircleButton(Context context) {
 		super(context);
@@ -48,10 +56,30 @@ public class CircleButton extends ImageView {
 		init(context, attrs);
 	}
 
-	@Override
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                showPressedRing();
+                if (circlePaint != null) {
+                    circlePaint.setColor(pressedColor);
+                }
+                return true;
+            case MotionEvent.ACTION_UP:
+                hidePressedRing();
+                if (circlePaint != null) {
+                    circlePaint.setColor(defaultColor);
+                }
+                break;
+            default:
+                break;
+        }
+        return super.onTouchEvent(event);
+    }
+
+/*	@Override
 	public void setPressed(boolean pressed) {
 		super.setPressed(pressed);
-
 		if (circlePaint != null) {
 			circlePaint.setColor(pressed ? pressedColor : defaultColor);
 		}
@@ -61,7 +89,7 @@ public class CircleButton extends ImageView {
 		} else {
 			hidePressedRing();
 		}
-	}
+	}*/
 
 	@Override
 	protected void onDraw(Canvas canvas) {
@@ -100,19 +128,31 @@ public class CircleButton extends ImageView {
 	}
 
 	private void hidePressedRing() {
-		pressedAnimator.setFloatValues(pressedRingWidth, 0f);
-		pressedAnimator.start();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
+            pressedAnimator.setFloatValues(pressedRingWidth, 0f);
+            pressedAnimator.start();
+        } else {
+            mTickerStopped = false;
+            mShowing = false;
+            mTicker.run();
+        }
 	}
 
 	private void showPressedRing() {
-		pressedAnimator.setFloatValues(animationProgress, pressedRingWidth);
-		pressedAnimator.start();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
+            pressedAnimator.setFloatValues(animationProgress, pressedRingWidth);
+            pressedAnimator.start();
+        } else {
+            mShowing = true;
+            mTickerStopped = false;
+            mTicker.run();
+        }
 	}
 
 	private void init(Context context, AttributeSet attrs) {
 		this.setFocusable(true);
 		this.setScaleType(ScaleType.CENTER_INSIDE);
-		setClickable(true);
+        this.setClickable(true);
 
 		circlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 		circlePaint.setStyle(Paint.Style.FILL);
@@ -134,9 +174,34 @@ public class CircleButton extends ImageView {
 		setColor(color);
 
 		focusPaint.setStrokeWidth(pressedRingWidth);
-		final int pressedAnimationTime = getResources().getInteger(ANIMATION_TIME_ID);
-		pressedAnimator = ObjectAnimator.ofFloat(this, "animationProgress", 0f, 0f);
-		pressedAnimator.setDuration(pressedAnimationTime);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
+            final int pressedAnimationTime = getResources().getInteger(ANIMATION_TIME_ID);
+            pressedAnimator = ObjectAnimator.ofFloat(this, "animationProgress", 0f, 0f);
+            pressedAnimator.setDuration(pressedAnimationTime);
+        } else {
+            mHandler = new Handler();
+            mTicker = new Runnable() {
+                public void run() {
+                    if (mTickerStopped)
+                        return;
+                    animationProgress += pressedRingWidth * (mShowing ? 0.1f : -0.1f);
+                    if (animationProgress <= 0f) {
+                        animationProgress = 0f;
+                        mTickerStopped = true;
+                        invalidate();
+                        return;
+                    }
+                    if (animationProgress >= pressedRingWidth) {
+                        animationProgress = pressedRingWidth;
+                        mTickerStopped = true;
+                        invalidate();
+                        return;
+                    }
+                    invalidate();
+                    mHandler.postDelayed(mTicker, 16);
+                }
+            };
+        }
 	}
 
 	private int getHighlightColor(int color, int amount) {
